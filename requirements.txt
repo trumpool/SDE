@@ -1,0 +1,9 @@
+torch>=2.2
+torchsde>=0.2.6
+numpy>=1.24
+scipy>=1.11
+matplotlib>=3.7
+tqdm>=4.65
+# Optional: for text-valued marks (Section 4 of paper). Uncomment when adding real text data.
+# transformers>=4.40
+# tokenizers>=0.15

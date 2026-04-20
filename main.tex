@@ -1,0 +1,1377 @@
+\documentclass[11pt]{article}
+
+% =========================
+% Page layout
+% =========================
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{setspace}
+\usepackage{microtype}
+\usepackage{parskip}   % better paragraph spacing
+\usepackage{authblk}
+\renewcommand*{\Affilfont}{\small\itshape}
+
+% =========================
+% Math packages
+% =========================
+\usepackage{amsmath,amssymb,amsfonts,amsthm,mathtools,bm}
+\usepackage{bbm}
+\usepackage{mathtools}
+
+% =========================
+% Figures and tables
+% =========================
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{caption}
+
+% =========================
+% Algorithms
+% =========================
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+% =========================
+% Colors and hyperlinks
+% =========================
+\usepackage{xcolor}
+\usepackage[
+    colorlinks=true,
+    linkcolor=blue,
+    citecolor=blue,
+    urlcolor=blue
+]{hyperref}
+\usepackage[nameinlink,capitalize]{cleveref}
+
+% =========================
+% Lists
+% =========================
+\usepackage{enumitem}
+\usepackage[authoryear]{natbib}   % 作者-年份引用
+
+
+% =========================
+% Theorem environments
+% =========================
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
+\newtheorem{corollary}{Corollary}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{assumption}{Assumption}
+\newtheorem{remark}{Remark}
+\newtheorem{example}{Example}
+\numberwithin{equation}{section}
+\numberwithin{theorem}{section}
+\numberwithin{proposition}{section}
+\numberwithin{lemma}{section}
+\numberwithin{corollary}{section}
+\numberwithin{definition}{section}
+\numberwithin{remark}{section}
+
+% =========================
+% Custom commands
+% =========================
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\1}{\mathbbm{1}}
+
+\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\Tr}{\mathrm{Tr}}
+\newcommand{\KL}{\mathrm{KL}}
+\newcommand{\Softplus}{\mathrm{Softplus}}
+
+\newcommand{\z}{\mathbf{z}}
+\newcommand{\vstate}{\mathbf{v}}
+\newcommand{\x}{\mathbf{x}}
+\newcommand{\s}{\mathbf{s}}
+\newcommand{\w}{\mathbf{w}}
+
+\newcommand{\Ht}{\mathcal{H}}
+\newcommand{\Lt}{\mathcal{L}}
+\newcommand{\Nt}{\mathcal{N}}
+
+% optional: left/right limits
+\newcommand{\lminus}{^{-}}
+\newcommand{\lplus}{^{+}}
+
+% =========================
+% Title info
+% =========================
+\title{\textbf{A Neural Marked Point Process with Latent Stochastic Volatility}}
+\author[1]{Zirui Chen}
+\author[2]{Xiaoyang Wan}
+\author[1]{Xuan Xiao}
+\author[1]{Yongtao Guan}
+
+\affil[1]{The Chinese University of Hong Kong, Shenzhen}
+\affil[2]{University of Pennsylvania}
+\date{\today}
+
+% =========================
+% Document begins
+% =========================
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Marked event data observed in continuous time arise in many scientific settings, and a recurrent modeling difficulty is that event clustering and mark variability are often driven by latent, time-varying instability rather than by a smoothly evolving deterministic state alone. 
+We propose a neural marked point process with latent stochastic volatility. 
+The model is built on a continuous-time latent jump--diffusion in which a latent trend process captures smooth evolution, a positive mean-reverting volatility process captures local uncertainty, and observed events induce instantaneous jumps in the latent state. 
+The conditional intensity depends jointly on the latent trend and the latent volatility, while the mark distribution is linked to the same latent trajectory through a decoder whose uncertainty is volatility-sensitive. 
+This construction treats volatility as a predictive state variable rather than passive diffusion noise and yields a unified probabilistic framework for jointly modeling event times and marks. 
+Although our empirical study focuses on text-valued marks, the formulation itself is generic and applies to broader marked point process settings.
+\end{abstract}
+
+% optional
+
+% =========================
+% Main text
+% =========================
+
+\section{Introduction}
+
+Marked point processes provide a natural statistical framework for event data observed at irregular time points, where interest lies jointly in the occurrence times and in the associated marks \citep{daleyVereJones2003, aalenBorganGjessing2008, hawkesBiometrika1971}. 
+Such data arise in a wide range of applications, including recurrent clinical episodes, financial transactions, earthquake catalogues, and online activity streams. 
+What makes these data statistically distinctive is that time itself is random, marks may be high-dimensional, and dependence often appears through local clustering, bursts, and abrupt state changes rather than through smooth deterministic trends alone.
+
+Classical intensity-based models capture several important mechanisms, including excitation, inhibition, and self-correction, but they do so through deliberately stylized parametric structures. 
+Kernel-based Hawkes specifications, for example, are well suited to local excitation, yet they summarize history through fixed response kernels and do not explicitly distinguish the current level of a latent propensity from the uncertainty surrounding that propensity \citep{hawkesBiometrika1971}. 
+For marked event data, an additional difficulty is that the arrival process and the mark distribution are often modeled separately, or are coupled only through restrictive functional assumptions. 
+These limitations become especially visible when event streams are bursty, overdispersed, or driven by intermittent instability.
+
+Recent neural marked point process models substantially expand the representational flexibility of this framework by learning history-dependent intensity functions directly from data \citep{duRecurrentMarkedTemporal2016, Mei10.5555/3295222.3295420}. 
+Related jump--diffusion formulations further allow the latent state to evolve continuously between events while changing discontinuously at event times \citep{jiaNeuralJumpStochastic2019, zhangNeuralJumpDiffusionTemporal2024}. 
+These developments are important, but in most existing formulations stochasticity is either absent from the latent state, confined to event-driven jumps, or introduced mainly as undifferentiated diffusion noise. 
+Consequently, the event intensity is driven by the latent level, while the local uncertainty of that latent state is not itself treated as a predictive object.
+
+From a statistical point of view, this omission is substantive. 
+Two histories may imply similar latent trends but very different short-run risk because one history is locally stable whereas the other is highly volatile. 
+Stochastic-volatility models were introduced precisely to encode this distinction: a positive latent variance process can be persistent, mean reverting, and state dependent, thereby carrying information beyond the latent mean \citep{coxIngersollRoss1985, heston1993closed}. 
+Translating this idea to marked point processes suggests that local uncertainty should influence not only the dispersion of the marks but also the probability of future event arrivals.
+
+Motivated by this observation, we develop a neural marked point process with latent stochastic volatility. 
+Our model is formulated through a continuous-time latent jump--diffusion in which a latent trend process governs smooth evolution of the hidden state, a positive mean-reverting volatility process modulates local diffusion and observation uncertainty, and each observed event induces an instantaneous jump in the latent trajectory. 
+The conditional intensity depends on both latent trend and latent volatility, so that the model distinguishes sustained trend effects from volatility-driven bursts. 
+At the same time, the mark distribution is decoded from the same latent state, tying event timing and mark generation together within a single probabilistic construction. 
+Although our empirical study in Section~4 focuses on text-valued marks, the formulation itself applies to generic vector-valued marks.
+
+The methodological contribution is threefold. 
+First, we introduce latent stochastic volatility as an explicit predictive state variable in a neural marked point process, rather than treating diffusion as residual noise. 
+Second, we combine this volatility structure with event-driven jumps, yielding a continuous-time model that accommodates both smooth evolution and abrupt state changes. 
+Third, we couple volatility simultaneously to the arrival intensity and to the mark emission law, producing a unified framework for modeling both \emph{when} events occur and \emph{what} marks they carry.
+
+\section{Model}
+\subsection{Notation and General Formulation}
+\label{subsec:notation}
+
+We consider an observed marked event sequence
+\begin{equation}
+\mathcal{H}=\{(t_i,x_i)\}_{i=1}^N,
+\qquad
+t_0 < t_1 < \cdots < t_N \le T,
+\end{equation}
+and define $t_{N+1}:=T$. Here, $t_i$ denotes the timestamp of the $i$-th event and $x_i$ denotes its associated mark or feature vector.
+
+We introduce the joint latent state
+\begin{equation}
+s(t):=
+\begin{bmatrix}
+z(t)\\
+v(t)
+\end{bmatrix}
+\in \mathbb{R}^{d_z+d_v},
+\end{equation}
+where $z(t)\in\mathbb{R}^{d_z}$ represents the latent state and $v(t)\in\mathbb{R}^{d_v}$ denotes the latent volatility state.
+
+Let
+\begin{equation}
+\Psi := \{\theta_\mu,\phi,\eta,\kappa,\bar v,\xi\}
+\end{equation}
+collect all trainable model parameters, where $\theta_\mu$ parameterizes the drift network, $\phi$ parameterizes the jump network, $\eta$ parameterizes the intensity and mark model, and $(\kappa,\bar v,\xi)$ are the parameters of the volatility process.
+
+Between event times, we write the continuous latent dynamics in Stratonovich form as
+\begin{equation}
+\label{eq:general_stratonovich_dynamics}
+ds(t)
+=
+F(s(t),t;\Psi)\,dt
++
+\sum_{m=1}^{M} G_m(s(t),t;\Psi)\circ dW_t^{(m)},
+\qquad t\in (t_i,t_{i+1}),
+\end{equation}
+where $\{W_t^{(m)}\}_{m=1}^M$ are Brownian motions, $F$ is the drift field, and $G_m$ denotes the diffusion vector field associated with the $m$-th noise channel.
+
+For our model, the drift term takes the form
+\begin{equation}
+\label{eq:drift_specific}
+F(s,t;\Psi)
+=
+\begin{bmatrix}
+\mu_{\theta_\mu}(z,t)\\
+\kappa(\bar v-v)
+\end{bmatrix}.
+\end{equation}
+
+At each event time $t_i$, the latent state undergoes an instantaneous update governed by an event map
+\begin{equation}
+\label{eq:event_map_general}
+s(t_i^+)
+=
+\mathcal{M}_i\bigl(s(t_i^-);x_i,\Psi\bigr),
+\end{equation}
+where $s(t_i^-)$ and $s(t_i^+)$ denote the left and right limits of the state at time $t_i$, respectively.
+
+For our model, the event map is given by
+\begin{equation}
+\label{eq:event_map_specific}
+\mathcal{M}_i\bigl(s(t_i^-);x_i,\Psi\bigr)
+=
+\begin{bmatrix}
+z(t_i^-)+J_{\phi}(z(t_i^-),x_i)\\
+v(t_i^-)
+\end{bmatrix},
+\end{equation}
+which implies that the latent state $z(t)$ experiences an event-triggered jump, while the volatility state $v(t)$ remains continuous across event times.
+
+We write the overall training objective in the general form
+\begin{equation}
+\label{eq:general_loss}
+\mathcal{L}
+=
+\varphi(s(T),\Psi,T)
++
+\sum_{i=1}^{N}\ell_i\bigl(s(t_i^-),x_i,t_i;\Psi\bigr)
++
+\int_{t_0}^{T} r(s(t),t;\Psi)\,dt,
+\end{equation}
+where $\varphi$ is a terminal loss, $\ell_i$ is the event-wise loss at time $t_i$, and $r$ is a continuous-time running cost.
+
+This formulation is useful because our specific model can be viewed as a special case determined by the choices of $F$, $\{G_m\}_{m=1}^M$, $\mathcal{M}_i$, $\ell_i$, and $r$. As a result, the adjoint equations and the corresponding training algorithm can be presented in a clean and unified form.
+
+
+\subsection{Latent Jump Dynamics with Time-Varying Volatility}
+
+To model marked event dynamics in continuous time, we introduce two coupled latent processes: a latent state $z(t) \in \mathbb{R}^{d_z}$ and a volatility state $v(t) \in \mathbb{R}_{+}^{d_z}$. 
+The latent state tracks the evolving underlying condition of the system, while the volatility state quantifies the instantaneous uncertainty or instability of that latent trajectory. 
+We use a positive and mean-reverting volatility process to modulate the local diffusion scale of the latent state, while retaining the event-driven jump mechanism needed for abrupt changes in the latent mark dynamics. 
+Under this design, we define the latent dynamics as
+\begin{equation}
+\label{eq:svnsde_dynamics}
+\begin{aligned}
+dz(t) &= \mu_{\theta_\mu}(z(t), t)\,dt
+      + \sqrt{v(t)} \odot dW_z(t)
+      + J_{\phi}(z(t^-), x_i)\,dN(t), \\
+dv(t) &= \kappa\bigl(\bar v - v(t)\bigr)\,dt
+      + \xi \sqrt{v(t)} \odot dW_v(t).
+\end{aligned}
+\end{equation}
+Here, $\mu_{\theta_\mu}$ is a neural drift network that governs the smooth latent flow, $W_z(t)$ and $W_v(t)$ are Brownian motions, and $\odot$ denotes elementwise multiplication. 
+The jump network $J_{\phi}$ produces an instantaneous update to the latent state when a new event arrives. 
+The volatility process follows a CIR-type dynamics, which encourages positivity and mean reversion; thus, volatility can rise sharply during unstable periods but tends to cool down over time. 
+To allow instantaneous state shocks and volatility shocks to be statistically coupled, we additionally allow
+\begin{equation}
+\label{eq:brownian_correlation}
+d\langle W_z, W_v \rangle_t = \rho\,dt.
+\end{equation}
+This hybrid jump--diffusion design captures three distinct aspects of marked event dynamics. 
+The drift term models gradual latent evolution, the diffusion term captures uncertainty and random fluctuation, and the jump term models abrupt changes induced by newly arriving events. 
+Together, they provide a more realistic representation of marked event dynamics than purely deterministic latent dynamics, while keeping the role of volatility explicit and interpretable.
+
+\subsection{Dual-Channel Intensity as a Decomposed Ground Intensity}
+
+A key design choice in our model is that event intensity depends not only on the latent state but also explicitly on latent volatility. 
+Rather than forcing these two effects into a single undifferentiated score, we specify the dual-channel mechanism through a decomposed ground intensity. 
+We define
+\begin{equation}
+\label{eq:dual_channel_intensity}
+\lambda_g(t\mid \mathcal H_t)
+=
+\mathrm{Softplus}\!\left(
+\lambda_{\mathrm{tr}}(t)
++
+\lambda_{\mathrm{vol}}(t)
++
+ b_{\lambda}
+\right),
+\end{equation}
+where
+\begin{equation}
+\label{eq:decomposed_channels}
+\lambda_{\mathrm{tr}}(t)=a_{\mathrm{tr}}^{\top}\phi_{\mathrm{tr}}\bigl(z(t)\bigr),
+\qquad
+\lambda_{\mathrm{vol}}(t)=a_{\mathrm{vol}}^{\top}\phi_{\mathrm{vol}}\bigl(v(t)\bigr).
+\end{equation}
+Equivalently, in the notation of the general formulation, we write $\lambda_{\eta}(z(t),v(t),t)\equiv \lambda_g(t\mid \mathcal H_t)$. 
+The trend-driven channel captures routine event accumulation driven by the current latent state. 
+The volatility-driven channel captures instability amplification: even when the latent trend is relatively stable, a sudden increase in uncertainty can still raise the probability of new events. 
+This mechanism is central to our formulation because it allows the model to distinguish ordinary level effects from instability-induced burstiness and makes the predictive role of volatility directly testable in ablation studies.
+
+\subsection{Mark Emission Model}
+
+To ensure that the latent trajectory remains interpretable and predictive of observed marks, we introduce a mark emission model. 
+For notational convenience, write $z_i^-:=z(t_i^-)$ and $v_i^-:=v(t_i^-)$. 
+Conditioned on the latent state and the latent volatility state, the observed mark vector is generated by a volatility-modulated Gaussian mixture decoder:
+\begin{equation}
+\label{eq:mark_decoder}
+p_{\eta}(x_i \mid z_i^-, v_i^-)
+=
+\sum_{k=1}^{K} \pi_k(z_i^-)
+\mathcal{N}\!\left(
+x_i;\,\mu_k(z_i^-),\,\mathrm{Diag}\bigl(\sigma_k^2(z_i^-)\cdot s(v_i^-)\bigr)
+\right).
+\end{equation}
+Here, $\pi_k(z_i^-)$ are mixture weights, $\mu_k(z_i^-)$ are component means, $\sigma_k^2(z_i^-)$ are component-wise variance terms, and $s(v_i^-)$ is a positive scaling function of the latent volatility state. 
+This component plays two roles. 
+First, it forces the latent state to preserve meaningful information about the observed marks. 
+Second, it ties the observation uncertainty directly to $v(t)$, so that periods of high latent volatility correspond to greater uncertainty in the mark decoder rather than being treated as purely hidden perturbations.
+
+\subsection{Training Objective}
+
+The most natural main-text objective for the proposed model is a marked point process negative log-likelihood that combines event likelihood and mark reconstruction:
+\begin{equation}
+\label{eq:elbo}
+\mathcal{J}(\Psi)
+=
+-
+\sum_{i=1}^{N} \log \lambda_g\bigl(t_i \mid z(t_i^-), v(t_i^-)\bigr)
+-
+\beta \sum_{i=1}^{N} \log p_{\eta}\bigl(x_i \mid z(t_i^-), v(t_i^-)\bigr)
++
+\int_{t_0}^{T} \lambda_g\bigl(t \mid z(t), v(t)\bigr)\,dt.
+\end{equation}
+The first term is the event-time likelihood, the second term is the mark emission likelihood, and the third term is the non-event survival term. 
+When $x_i$ is treated as a genuine continuous mark, a natural baseline choice is $\beta=1$; in practice, $\beta$ can also be tuned as a hyperparameter if the scale of the mark embedding dominates the timing term.
+
+Overall, the proposed marked point process with latent stochastic volatility provides a unified framework for modeling \emph{when} events occur, \emph{how} latent uncertainty evolves, and \emph{what} marks the events carry. 
+By explicitly elevating volatility from a passive diffusion term to an active predictor of event intensity and observation uncertainty, the model is designed to better capture the distinction between ordinary trend effects and instability-associated bursts in marked event data.
+
+\section{Adjoint System and Training}
+
+\begin{proposition}[Adjoint system for the proposed latent jump--diffusion marked point process]
+\label{prop:neural_jsde_adjoint}
+Let $\mathcal H=\{(t_i,x_i)\}_{i=1}^N$ be the observed event sequence on $[t_0,T]$, and define $t_{N+1}:=T$. 
+Consider the hybrid latent dynamics
+\begin{equation}
+\label{eq:hybrid_forward_general}
+ds(t)
+=
+F(s(t),t;\Psi)\,dt
++
+\sum_{m=1}^M G_m(s(t),t;\Psi)\circ dW_t^{(m)},
+\qquad t\in (t_i,t_{i+1}),
+\end{equation}
+with event updates
+\begin{equation}
+\label{eq:event_map_general}
+s(t_i^+)=\mathcal M_i\bigl(s(t_i^-);x_i,\Psi\bigr), \qquad i=1,\dots,N.
+\end{equation}
+Assume that the training objective admits the decomposition
+\begin{equation}
+\label{eq:loss_general}
+\mathcal L
+=
+\varphi(s(T),\Psi,T)
++
+\sum_{i=1}^N \ell_i\bigl(s(t_i^-),x_i,t_i;\Psi\bigr)
++
+\int_{t_0}^{T} r(s(t),t;\Psi)\,dt.
+\end{equation}
+
+Define the state adjoint, parameter adjoint, and time adjoint by
+\begin{equation}
+\label{eq:adjoint_definition}
+a_s(t):=\frac{\partial \mathcal L_{[t,T]}}{\partial s(t)},
+\qquad
+a_\Psi(t):=\frac{\partial \mathcal L_{[t,T]}}{\partial \Psi},
+\qquad
+a_t(t):=\frac{\partial \mathcal L_{[t,T]}}{\partial t},
+\end{equation}
+where $\mathcal L_{[t,T]}$ denotes the future loss accumulated from time $t$ to $T$ along the realized sample path.
+
+Then, on each event-free interval $(t_i,t_{i+1})$, the adjoint variables satisfy the backward Stratonovich system
+\begin{align}
+\label{eq:adjoint_state_cont}
+da_s(t)
+&=
+-\frac{\partial r(s(t),t;\Psi)}{\partial s}\,dt
+-a_s(t)\frac{\partial F(s(t),t;\Psi)}{\partial s}\,dt
+-\sum_{m=1}^M a_s(t)\frac{\partial G_m(s(t),t;\Psi)}{\partial s}\circ dW_t^{(m)},\\
+\label{eq:adjoint_param_cont}
+da_\Psi(t)
+&=
+-\frac{\partial r(s(t),t;\Psi)}{\partial \Psi}\,dt
+-a_s(t)\frac{\partial F(s(t),t;\Psi)}{\partial \Psi}\,dt
+-\sum_{m=1}^M a_s(t)\frac{\partial G_m(s(t),t;\Psi)}{\partial \Psi}\circ dW_t^{(m)},\\
+\label{eq:adjoint_time_cont}
+da_t(t)
+&=
+-\frac{\partial r(s(t),t;\Psi)}{\partial t}\,dt
+-a_s(t)\frac{\partial F(s(t),t;\Psi)}{\partial t}\,dt
+-\sum_{m=1}^M a_s(t)\frac{\partial G_m(s(t),t;\Psi)}{\partial t}\circ dW_t^{(m)}.
+\end{align}
+
+At each event time $t_i$, the adjoints are updated from the right limit to the left limit according to
+\begin{align}
+\label{eq:adjoint_state_jump}
+a_s(t_i^-)
+&=
+\frac{\partial \ell_i(s(t_i^-),x_i,t_i;\Psi)}{\partial s(t_i^-)}
++
+a_s(t_i^+)\,
+\frac{\partial \mathcal M_i(s(t_i^-);x_i,\Psi)}{\partial s(t_i^-)},\\
+\label{eq:adjoint_param_jump}
+a_\Psi(t_i^-)
+&=
+a_\Psi(t_i^+)
++
+\frac{\partial \ell_i(s(t_i^-),x_i,t_i;\Psi)}{\partial \Psi}
++
+a_s(t_i^+)\,
+\frac{\partial \mathcal M_i(s(t_i^-);x_i,\Psi)}{\partial \Psi},\\
+\label{eq:adjoint_time_jump}
+a_t(t_i^-)
+&=
+a_t(t_i^+)
++
+\frac{\partial \ell_i(s(t_i^-),x_i,t_i;\Psi)}{\partial t_i}
++
+a_s(t_i^+)\,
+\frac{\partial \mathcal M_i(s(t_i^-);x_i,\Psi)}{\partial t_i}.
+\end{align}
+
+The terminal conditions are given by
+\begin{equation}
+\label{eq:adjoint_terminal}
+a_s(T^+)=\frac{\partial \varphi(s(T),\Psi,T)}{\partial s(T)},
+\qquad
+a_\Psi(T^+)=\frac{\partial \varphi(s(T),\Psi,T)}{\partial \Psi},
+\qquad
+a_t(T^+)=\frac{\partial \varphi(s(T),\Psi,T)}{\partial T}.
+\end{equation}
+If no terminal loss is used, then $a_s(T^+)=0$, $a_\Psi(T^+)=0$, and $a_t(T^+)=0$.
+
+Finally, the gradients of the full objective are obtained as
+\begin{equation}
+\label{eq:adjoint_gradients}
+\frac{\partial \mathcal L}{\partial s(t_0)}=a_s(t_0),
+\qquad
+\frac{\partial \mathcal L}{\partial \Psi}=a_\Psi(t_0),
+\qquad
+\frac{\partial \mathcal L}{\partial t_0}=a_t(t_0).
+\end{equation}
+\end{proposition}
+
+
+\paragraph{Specialization to the proposed latent jump--diffusion marked point process.}
+For our model, the latent state is $s(t)=[z(t)^\top,v(t)^\top]^\top$, and the event map is
+\begin{equation}
+\label{eq:event_map_specific}
+\mathcal M_i\bigl(s(t_i^-);x_i,\Psi\bigr)
+=
+\begin{bmatrix}
+z(t_i^-)+J_\phi(z(t_i^-),x_i)\\
+v(t_i^-)
+\end{bmatrix}.
+\end{equation}
+Hence,
+\begin{equation}
+\label{eq:event_map_jacobian_specific}
+\frac{\partial \mathcal M_i}{\partial s(t_i^-)}
+=
+\begin{bmatrix}
+I+\dfrac{\partial J_\phi(z(t_i^-),x_i)}{\partial z(t_i^-)} & 0\\[1.2ex]
+0 & I
+\end{bmatrix}.
+\end{equation}
+If $J_\phi$ has no explicit dependence on $t_i$, then $\partial \mathcal M_i/\partial t_i=0$. 
+Therefore, the event-time adjoint updates reduce to
+\begin{align}
+\label{eq:adjoint_z_jump_specific}
+a_z(t_i^-)
+&=
+\frac{\partial \ell_i}{\partial z(t_i^-)}
++
+a_z(t_i^+)
+\left(
+I+\frac{\partial J_\phi(z(t_i^-),x_i)}{\partial z(t_i^-)}
+\right),\\
+\label{eq:adjoint_v_jump_specific}
+a_v(t_i^-)
+&=
+\frac{\partial \ell_i}{\partial v(t_i^-)}
++
+a_v(t_i^+),\\
+\label{eq:adjoint_phi_jump_specific}
+a_\phi(t_i^-)
+&=
+a_\phi(t_i^+)
++
+\frac{\partial \ell_i}{\partial \phi}
++
+a_z(t_i^+)\frac{\partial J_\phi(z(t_i^-),x_i)}{\partial \phi},\\
+\label{eq:adjoint_other_jump_specific}
+a_{\Psi\setminus\phi}(t_i^-)
+&=
+a_{\Psi\setminus\phi}(t_i^+)
++
+\frac{\partial \ell_i}{\partial (\Psi\setminus\phi)},\\
+\label{eq:adjoint_time_jump_specific}
+a_t(t_i^-)
+&=
+a_t(t_i^+)
++
+\frac{\partial \ell_i}{\partial t_i}.
+\end{align}
+
+
+\begin{algorithm}[t]
+\caption{Forward--backward adjoint method for the proposed latent jump--diffusion marked point process}
+\label{alg:neural_jsde_adjoint}
+\begin{algorithmic}[1]
+\Require Initial state $s(t_0)$, event sequence $\mathcal H=\{(t_i,x_i)\}_{i=1}^N$, terminal time $T$, parameters $\Psi$
+\Ensure Gradients $\partial \mathcal L/\partial s(t_0)$, $\partial \mathcal L/\partial \Psi$, and $\partial \mathcal L/\partial t_0$
+
+\State Set $t_{N+1}\leftarrow T$
+
+\State \textbf{Forward pass}
+\State Initialize $s(t_0^+)\leftarrow s(t_0)$
+\For{$i=0$ to $N$}
+    \State Integrate the continuous system \eqref{eq:hybrid_forward_general} on $[t_i,t_{i+1})$ using the chosen SDE/ODE solver
+    \State Store the trajectory checkpoints (or solver states), the realized Brownian path / random seed, and the left-limit state $s(t_{i+1}^-)$
+    \If{$i+1\le N$}
+        \State Apply the event map:
+        \State $s(t_{i+1}^+)\leftarrow \mathcal M_{i+1}\bigl(s(t_{i+1}^-);x_{i+1},\Psi\bigr)$
+    \EndIf
+\EndFor
+
+\State \textbf{Terminal initialization}
+\State Initialize the adjoints at $T^+$ by \eqref{eq:adjoint_terminal}
+
+\State \textbf{Backward pass}
+\State Integrate the continuous adjoint system \eqref{eq:adjoint_state_cont}--\eqref{eq:adjoint_time_cont} backward on $(t_N,T]$ to obtain $a_s(t_N^+)$, $a_\Psi(t_N^+)$, and $a_t(t_N^+)$
+\For{$i=N$ downto $1$}
+    \State Update the adjoints at the event time $t_i$ using \eqref{eq:adjoint_state_jump}--\eqref{eq:adjoint_time_jump}
+    \State Integrate the continuous adjoint system \eqref{eq:adjoint_state_cont}--\eqref{eq:adjoint_time_cont} backward on $[t_{i-1},t_i)$ along the same realized Brownian path to obtain $a_s(t_{i-1})$, $a_\Psi(t_{i-1})$, and $a_t(t_{i-1})$
+\EndFor
+
+\State \textbf{Return}
+\State $\partial \mathcal L/\partial s(t_0)\leftarrow a_s(t_0)$
+\State $\partial \mathcal L/\partial \Psi\leftarrow a_\Psi(t_0)$
+\State $\partial \mathcal L/\partial t_0)\leftarrow a_t(t_0)$
+\end{algorithmic}
+\end{algorithm}
+
+
+
+
+\section{Experiments}
+
+\subsection{Construction of text-valued marks in the empirical study}
+
+The general model in Section~2 treats $x_i$ as an observed mark or feature vector. 
+In the text-valued experiment reported in this paper, each event additionally carries a raw text field $T_i$, and we construct $x_i$ from $T_i$ using a pretrained Chinese language model. 
+Specifically, we encode $T_i$ with RoBERTa-wwm-ext \citep{cui2020revisiting}. 
+After tokenization, truncation or padding to a fixed length $L$, and insertion of special tokens, the contextual representation is
+\[
+H_i = \mathrm{RoBERTa}(\mathrm{Tokenizer}(T_i)) \in \mathbb{R}^{L \times D_{\mathrm{bert}}},
+\]
+where $D_{\mathrm{bert}}=768$. 
+We take the representation of the \texttt{[CLS]} token, denoted by $h_i^{[\mathrm{CLS}]}$, as a sentence-level embedding of the post. 
+To obtain a lower-dimensional mark vector used by the model, we further project this representation as
+\[
+x_i = W_p h_i^{[\mathrm{CLS}]} + b_p,
+\qquad x_i \in \mathbb{R}^{d_{\text{in}}}.
+\]
+This projected feature $x_i$ is then used as the observed mark input in the jump map and in the mark likelihood.
+
+
+% Write experiments here.
+
+\section{Conclusion}
+
+% Conclusion to be completed. Throughout, we refer to the proposed formulation as a marked point process with latent stochastic volatility, implemented through a latent jump--diffusion representation.
+
+
+\appendix
+
+\section{Technical Assumptions and Proof of the Adjoint System}
+\label{app:adjoint_rigorous}
+
+In this appendix, we state a set of regularity assumptions under which the adjoint system in Proposition~\ref{prop:neural_jsde_adjoint} is well defined and provide a rigorous pathwise proof.
+
+\subsection{Technical Assumptions}
+
+\begin{assumption}[Regularity of the continuous dynamics]
+\label{ass:regularity_dynamics}
+For each parameter value $\Psi$, the drift field
+\[
+F:\mathbb{R}^{d_s}\times [t_0,T]\times \Theta \to \mathbb{R}^{d_s}
+\]
+and the diffusion vector fields
+\[
+G_m:\mathbb{R}^{d_s}\times [t_0,T]\times \Theta \to \mathbb{R}^{d_s},
+\qquad m=1,\dots,M,
+\]
+are jointly continuous in $(s,t,\Psi)$ and continuously differentiable with respect to $(s,\Psi,t)$. Moreover, for every compact set $K\subset \mathbb{R}^{d_s}\times \Theta$, there exists a constant $L_K>0$ such that, for all $(s,t,\Psi),(\tilde s,t,\Psi)\in K$,
+\[
+\|F(s,t;\Psi)-F(\tilde s,t;\Psi)\|
++
+\sum_{m=1}^M \|G_m(s,t;\Psi)-G_m(\tilde s,t;\Psi)\|
+\le L_K \|s-\tilde s\|.
+\]
+In addition, $F$ and $G_m$ satisfy a linear growth condition in $s$.
+\end{assumption}
+
+\begin{assumption}[Regularity of the event maps and loss terms]
+\label{ass:regularity_events_losses}
+For each observed event $(t_i,x_i)$, the event map
+\[
+\mathcal M_i(\cdot\,;x_i,\Psi):\mathbb{R}^{d_s}\to\mathbb{R}^{d_s}
+\]
+is continuously differentiable in $(s,\Psi,t_i)$. The event-wise loss
+\[
+\ell_i(s,x_i,t_i;\Psi)
+\]
+is continuously differentiable in $(s,\Psi,t_i)$. The running cost
+\[
+r(s,t;\Psi)
+\]
+and the terminal loss
+\[
+\varphi(s,\Psi,T)
+\]
+are continuously differentiable in all of their arguments.
+\end{assumption}
+
+\begin{assumption}[Well-posedness of the forward hybrid system]
+\label{ass:wellposedness}
+For every initial condition $s(t_0)$ and every parameter value $\Psi$, the hybrid Stratonovich system admits a unique pathwise solution on $[t_0,T]$. The observed event times satisfy
+\[
+t_0 < t_1 < \cdots < t_N \le T,
+\]
+so that there is no event accumulation on $[t_0,T]$.
+\end{assumption}
+
+\begin{assumption}[Existence of pathwise sensitivities]
+\label{ass:sensitivity}
+For almost every realized Brownian path and for the observed event sequence $\mathcal H=\{(t_i,x_i)\}_{i=1}^N$, the forward solution is pathwise continuously differentiable with respect to the initial state, the parameters, and the time variable on each event-free interval. Moreover, the corresponding variational equations are integrable on every compact subinterval of $[t_0,T]$.
+\end{assumption}
+
+\begin{assumption}[Pathwise backward computation]
+\label{ass:pathwise}
+The backward pass is performed conditionally on the same realized Brownian path as in the forward pass. Since the forward stochastic dynamics are written in Stratonovich form, the ordinary chain rule holds pathwise along each realized sample path.
+\end{assumption}
+
+\subsection{General Hybrid Formulation}
+
+Recall the event sequence
+\[
+\mathcal H=\{(t_i,x_i)\}_{i=1}^N,
+\qquad
+t_0 < t_1 < \cdots < t_N \le T,
+\qquad
+t_{N+1}:=T,
+\]
+and the latent state
+\[
+s(t)\in\mathbb{R}^{d_s}.
+\]
+On each event-free interval $(t_i,t_{i+1})$, the state evolves according to the Stratonovich system
+\begin{equation}
+\label{eq:app_forward_hybrid}
+ds(t)
+=
+F(s(t),t;\Psi)\,dt
++
+\sum_{m=1}^M G_m(s(t),t;\Psi)\circ dW_t^{(m)}.
+\end{equation}
+At each event time $t_i$, the state is updated by
+\begin{equation}
+\label{eq:app_event_map_hybrid}
+s(t_i^+)=\mathcal M_i(s(t_i^-);x_i,\Psi).
+\end{equation}
+The objective is
+\begin{equation}
+\label{eq:app_objective_general}
+\mathcal L
+=
+\varphi(s(T),\Psi,T)
++
+\sum_{i=1}^N \ell_i(s(t_i^-),x_i,t_i;\Psi)
++
+\int_{t_0}^T r(s(t),t;\Psi)\,dt.
+\end{equation}
+
+\subsection{Main Proposition}
+
+\begin{proposition}[Pathwise adjoint system for the hybrid latent jump--diffusion marked point process]
+\label{prop:adjoint_rigorous_appendix}
+Under Assumptions~\ref{ass:regularity_dynamics}--\ref{ass:pathwise}, for almost every realized Brownian path and the observed event sequence $\mathcal H$, define the future-loss functional
+\[
+\mathcal L_{[t,T]}
+:=
+\varphi(s(T),\Psi,T)
++
+\sum_{i:\,t_i\ge t}\ell_i(s(t_i^-),x_i,t_i;\Psi)
++
+\int_t^T r(s(\tau),\tau;\Psi)\,d\tau.
+\]
+Let
+\begin{equation}
+\label{eq:app_adjoint_defs_main}
+a_s(t):=\frac{\partial \mathcal L_{[t,T]}}{\partial s(t)},
+\qquad
+a_\Psi(t):=\frac{\partial \mathcal L_{[t,T]}}{\partial \Psi},
+\qquad
+a_t(t):=\frac{\partial \mathcal L_{[t,T]}}{\partial t}.
+\end{equation}
+Then the following statements hold.
+
+\paragraph{(i) Continuous-time adjoint equations.}
+On each event-free interval $(t_i,t_{i+1})$, the adjoints satisfy
+\begin{align}
+\label{eq:app_prop_state_cont}
+da_s(t)
+&=
+-\frac{\partial r(s(t),t;\Psi)}{\partial s}\,dt
+-a_s(t)\frac{\partial F(s(t),t;\Psi)}{\partial s}\,dt
+-\sum_{m=1}^{M}
+a_s(t)\frac{\partial G_m(s(t),t;\Psi)}{\partial s}\circ dW_t^{(m)},\\
+\label{eq:app_prop_param_cont}
+da_\Psi(t)
+&=
+-\frac{\partial r(s(t),t;\Psi)}{\partial \Psi}\,dt
+-a_s(t)\frac{\partial F(s(t),t;\Psi)}{\partial \Psi}\,dt
+-\sum_{m=1}^{M}
+a_s(t)\frac{\partial G_m(s(t),t;\Psi)}{\partial \Psi}\circ dW_t^{(m)},\\
+\label{eq:app_prop_time_cont}
+da_t(t)
+&=
+-\frac{\partial r(s(t),t;\Psi)}{\partial t}\,dt
+-a_s(t)\frac{\partial F(s(t),t;\Psi)}{\partial t}\,dt
+-\sum_{m=1}^{M}
+a_s(t)\frac{\partial G_m(s(t),t;\Psi)}{\partial t}\circ dW_t^{(m)}.
+\end{align}
+
+\paragraph{(ii) Event-time adjoint updates.}
+At each event time $t_i$, the adjoints are updated from the right limit to the left limit according to
+\begin{align}
+\label{eq:app_prop_state_jump}
+a_s(t_i^-)
+&=
+\frac{\partial \ell_i(s(t_i^-),x_i,t_i;\Psi)}{\partial s(t_i^-)}
++
+a_s(t_i^+)\,
+\frac{\partial \mathcal M_i(s(t_i^-);x_i,\Psi)}{\partial s(t_i^-)},\\
+\label{eq:app_prop_param_jump}
+a_\Psi(t_i^-)
+&=
+a_\Psi(t_i^+)
++
+\frac{\partial \ell_i(s(t_i^-),x_i,t_i;\Psi)}{\partial \Psi}
++
+a_s(t_i^+)\,
+\frac{\partial \mathcal M_i(s(t_i^-);x_i,\Psi)}{\partial \Psi},\\
+\label{eq:app_prop_time_jump}
+a_t(t_i^-)
+&=
+a_t(t_i^+)
++
+\frac{\partial \ell_i(s(t_i^-),x_i,t_i;\Psi)}{\partial t_i}
++
+a_s(t_i^+)\,
+\frac{\partial \mathcal M_i(s(t_i^-);x_i,\Psi)}{\partial t_i}.
+\end{align}
+
+\paragraph{(iii) Terminal conditions.}
+The terminal values satisfy
+\begin{equation}
+\label{eq:app_prop_terminal}
+a_s(T^+)=\frac{\partial \varphi(s(T),\Psi,T)}{\partial s(T)},
+\qquad
+a_\Psi(T^+)=\frac{\partial \varphi(s(T),\Psi,T)}{\partial \Psi},
+\qquad
+a_t(T^+)=\frac{\partial \varphi(s(T),\Psi,T)}{\partial T}.
+\end{equation}
+If no terminal loss is used, then
+\[
+a_s(T^+)=0,\qquad a_\Psi(T^+)=0,\qquad a_t(T^+)=0.
+\]
+
+\paragraph{(iv) Initial gradients.}
+After integrating the hybrid backward system from $T$ to $t_0$, the gradients of the full objective are
+\begin{equation}
+\label{eq:app_prop_initial_gradients}
+\frac{\partial \mathcal L}{\partial s(t_0)}=a_s(t_0),
+\qquad
+\frac{\partial \mathcal L}{\partial \Psi}=a_\Psi(t_0),
+\qquad
+\frac{\partial \mathcal L}{\partial t_0}=a_t(t_0).
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+The proof proceeds in five steps.
+
+\paragraph{Step 1: Augmenting the state to absorb the running cost.}
+The presence of the running cost
+\[
+\int_{t_0}^T r(s(t),t;\Psi)\,dt
+\]
+can be handled by introducing an auxiliary scalar state
+\[
+y(t):=\int_{t_0}^t r(s(\tau),\tau;\Psi)\,d\tau.
+\]
+Define the augmented state
+\[
+\bar s(t):=
+\begin{bmatrix}
+y(t)\\
+s(t)
+\end{bmatrix}.
+\]
+Then, on each event-free interval $(t_i,t_{i+1})$, the augmented dynamics are
+\begin{equation}
+\label{eq:app_augmented_forward}
+d\bar s(t)
+=
+\bar F(\bar s(t),t;\Psi)\,dt
++
+\sum_{m=1}^M \bar G_m(\bar s(t),t;\Psi)\circ dW_t^{(m)},
+\end{equation}
+where
+\begin{equation}
+\label{eq:app_augmented_FG}
+\bar F(\bar s,t;\Psi)
+=
+\begin{bmatrix}
+r(s,t;\Psi)\\
+F(s,t;\Psi)
+\end{bmatrix},
+\qquad
+\bar G_m(\bar s,t;\Psi)
+=
+\begin{bmatrix}
+0\\
+G_m(s,t;\Psi)
+\end{bmatrix}.
+\end{equation}
+At each event time $t_i$, the augmented event map is
+\begin{equation}
+\label{eq:app_augmented_event_map}
+\bar s(t_i^+)
+=
+\bar{\mathcal M}_i(\bar s(t_i^-);x_i,\Psi)
+:=
+\begin{bmatrix}
+y(t_i^-)\\
+\mathcal M_i(s(t_i^-);x_i,\Psi)
+\end{bmatrix}.
+\end{equation}
+The original objective \eqref{eq:app_objective_general} can now be rewritten as
+\begin{equation}
+\label{eq:app_augmented_objective}
+\mathcal L
+=
+\tilde \varphi(\bar s(T),\Psi,T)
++
+\sum_{i=1}^N \ell_i(s(t_i^-),x_i,t_i;\Psi),
+\end{equation}
+where
+\begin{equation}
+\label{eq:app_tilde_phi}
+\tilde \varphi(\bar s(T),\Psi,T)
+:=
+\varphi(s(T),\Psi,T)+y(T).
+\end{equation}
+Thus, after augmentation, there is no explicit running integral in the objective.
+
+\paragraph{Step 2: Continuous-time adjoint dynamics for the augmented system.}
+For $t\in(t_i,t_{i+1})$, define the future loss of the augmented system by
+\begin{equation}
+\label{eq:app_augmented_future_loss}
+\tilde{\mathcal L}_{[t,T]}
+:=
+\tilde \varphi(\bar s(T),\Psi,T)
++
+\sum_{k:\,t_k\ge t}\ell_k(s(t_k^-),x_k,t_k;\Psi).
+\end{equation}
+Define the augmented adjoints
+\begin{equation}
+\label{eq:app_augmented_adjoint_defs}
+\bar a(t):=\frac{\partial \tilde{\mathcal L}_{[t,T]}}{\partial \bar s(t)},
+\qquad
+a_\Psi(t):=\frac{\partial \tilde{\mathcal L}_{[t,T]}}{\partial \Psi},
+\qquad
+a_t(t):=\frac{\partial \tilde{\mathcal L}_{[t,T]}}{\partial t}.
+\end{equation}
+Write
+\[
+\bar a(t)=\begin{bmatrix} a_y(t) & a_s(t)\end{bmatrix},
+\]
+where $a_y(t)$ is the adjoint corresponding to the auxiliary state $y(t)$.
+
+Fix $t\in(t_i,t_{i+1})$ and let $\Delta t>0$ be sufficiently small so that $[t,t+\Delta t]\subset(t_i,t_{i+1})$. By the Stratonovich expansion of the flow map along the realized Brownian path,
+\begin{equation}
+\label{eq:app_augmented_small_step}
+\bar s(t+\Delta t)
+=
+\bar s(t)
++
+\bar F(\bar s(t),t;\Psi)\,\Delta t
++
+\sum_{m=1}^M \bar G_m(\bar s(t),t;\Psi)\circ \Delta W_t^{(m)}
++
+o(\Delta t,\Delta W_t).
+\end{equation}
+Hence,
+\begin{equation}
+\label{eq:app_augmented_jacobian_state}
+\frac{\partial \bar s(t+\Delta t)}{\partial \bar s(t)}
+=
+I
++
+\frac{\partial \bar F(\bar s(t),t;\Psi)}{\partial \bar s}\,\Delta t
++
+\sum_{m=1}^M
+\frac{\partial \bar G_m(\bar s(t),t;\Psi)}{\partial \bar s}\circ \Delta W_t^{(m)}
++
+o(\Delta t,\Delta W_t),
+\end{equation}
+and similarly,
+\begin{equation}
+\label{eq:app_augmented_jacobian_param}
+\frac{\partial \bar s(t+\Delta t)}{\partial \Psi}
+=
+\frac{\partial \bar F(\bar s(t),t;\Psi)}{\partial \Psi}\,\Delta t
++
+\sum_{m=1}^M
+\frac{\partial \bar G_m(\bar s(t),t;\Psi)}{\partial \Psi}\circ \Delta W_t^{(m)}
++
+o(\Delta t,\Delta W_t),
+\end{equation}
+\begin{equation}
+\label{eq:app_augmented_jacobian_time}
+\frac{\partial \bar s(t+\Delta t)}{\partial t}
+=
+\frac{\partial \bar F(\bar s(t),t;\Psi)}{\partial t}\,\Delta t
++
+\sum_{m=1}^M
+\frac{\partial \bar G_m(\bar s(t),t;\Psi)}{\partial t}\circ \Delta W_t^{(m)}
++
+o(\Delta t,\Delta W_t).
+\end{equation}
+
+Because there is no local cost on an event-free interval after augmentation,
+\[
+\tilde{\mathcal L}_{[t,T]}
+=
+\tilde{\mathcal L}_{[t+\Delta t,T]}.
+\]
+Therefore, by the chain rule,
+\begin{align}
+\bar a(t)
+&=
+\frac{\partial \tilde{\mathcal L}_{[t+\Delta t,T]}}{\partial \bar s(t+\Delta t)}
+\frac{\partial \bar s(t+\Delta t)}{\partial \bar s(t)}
+=
+\bar a(t+\Delta t)
+\frac{\partial \bar s(t+\Delta t)}{\partial \bar s(t)}.
+\label{eq:app_chain_rule_state_aug}
+\end{align}
+Substituting \eqref{eq:app_augmented_jacobian_state} into \eqref{eq:app_chain_rule_state_aug}, subtracting $\bar a(t)$ from both sides, and passing to the limit yield
+\begin{equation}
+\label{eq:app_augmented_adjoint_state}
+d\bar a(t)
+=
+-\bar a(t)\frac{\partial \bar F(\bar s(t),t;\Psi)}{\partial \bar s}\,dt
+-\sum_{m=1}^M
+\bar a(t)\frac{\partial \bar G_m(\bar s(t),t;\Psi)}{\partial \bar s}\circ dW_t^{(m)}.
+\end{equation}
+By the same argument,
+\begin{equation}
+\label{eq:app_augmented_adjoint_param}
+da_\Psi(t)
+=
+-\bar a(t)\frac{\partial \bar F(\bar s(t),t;\Psi)}{\partial \Psi}\,dt
+-\sum_{m=1}^M
+\bar a(t)\frac{\partial \bar G_m(\bar s(t),t;\Psi)}{\partial \Psi}\circ dW_t^{(m)},
+\end{equation}
+and
+\begin{equation}
+\label{eq:app_augmented_adjoint_time}
+da_t(t)
+=
+-\bar a(t)\frac{\partial \bar F(\bar s(t),t;\Psi)}{\partial t}\,dt
+-\sum_{m=1}^M
+\bar a(t)\frac{\partial \bar G_m(\bar s(t),t;\Psi)}{\partial t}\circ dW_t^{(m)}.
+\end{equation}
+
+We now compute the block structure explicitly. Since
+\[
+\bar F(\bar s,t;\Psi)
+=
+\begin{bmatrix}
+r(s,t;\Psi)\\
+F(s,t;\Psi)
+\end{bmatrix},
+\qquad
+\bar G_m(\bar s,t;\Psi)
+=
+\begin{bmatrix}
+0\\
+G_m(s,t;\Psi)
+\end{bmatrix},
+\]
+their Jacobians with respect to $\bar s=(y,s)$ are
+\begin{equation}
+\label{eq:app_augmented_block_jacobians}
+\frac{\partial \bar F}{\partial \bar s}
+=
+\begin{bmatrix}
+0 & \dfrac{\partial r}{\partial s}\\[1.2ex]
+0 & \dfrac{\partial F}{\partial s}
+\end{bmatrix},
+\qquad
+\frac{\partial \bar G_m}{\partial \bar s}
+=
+\begin{bmatrix}
+0 & 0\\
+0 & \dfrac{\partial G_m}{\partial s}
+\end{bmatrix}.
+\end{equation}
+Therefore,
+\begin{equation}
+\label{eq:app_ay_equation}
+da_y(t)=0.
+\end{equation}
+At terminal time,
+\[
+\tilde \varphi(\bar s(T),\Psi,T)=\varphi(s(T),\Psi,T)+y(T),
+\]
+so
+\begin{equation}
+\label{eq:app_terminal_ay}
+a_y(T^+)=\frac{\partial \tilde \varphi}{\partial y(T)}=1.
+\end{equation}
+Combining \eqref{eq:app_ay_equation} and \eqref{eq:app_terminal_ay}, we obtain
+\begin{equation}
+\label{eq:app_ay_constant}
+a_y(t)\equiv 1
+\qquad \text{for all } t\in[t_0,T].
+\end{equation}
+
+Projecting \eqref{eq:app_augmented_adjoint_state} onto the $s$-coordinates and using \eqref{eq:app_ay_constant}, we obtain
+\begin{align}
+da_s(t)
+&=
+-a_y(t)\frac{\partial r(s(t),t;\Psi)}{\partial s}\,dt
+-a_s(t)\frac{\partial F(s(t),t;\Psi)}{\partial s}\,dt
+-\sum_{m=1}^M a_s(t)\frac{\partial G_m(s(t),t;\Psi)}{\partial s}\circ dW_t^{(m)}
+\notag\\
+&=
+-\frac{\partial r(s(t),t;\Psi)}{\partial s}\,dt
+-a_s(t)\frac{\partial F(s(t),t;\Psi)}{\partial s}\,dt
+-\sum_{m=1}^M a_s(t)\frac{\partial G_m(s(t),t;\Psi)}{\partial s}\circ dW_t^{(m)},
+\end{align}
+which is \eqref{eq:app_prop_state_cont}.
+
+Similarly, projecting \eqref{eq:app_augmented_adjoint_param} yields
+\begin{align}
+da_\Psi(t)
+&=
+-a_y(t)\frac{\partial r(s(t),t;\Psi)}{\partial \Psi}\,dt
+-a_s(t)\frac{\partial F(s(t),t;\Psi)}{\partial \Psi}\,dt
+-\sum_{m=1}^M a_s(t)\frac{\partial G_m(s(t),t;\Psi)}{\partial \Psi}\circ dW_t^{(m)}
+\notag\\
+&=
+-\frac{\partial r(s(t),t;\Psi)}{\partial \Psi}\,dt
+-a_s(t)\frac{\partial F(s(t),t;\Psi)}{\partial \Psi}\,dt
+-\sum_{m=1}^M a_s(t)\frac{\partial G_m(s(t),t;\Psi)}{\partial \Psi}\circ dW_t^{(m)},
+\end{align}
+which is \eqref{eq:app_prop_param_cont}. Likewise,
+\begin{align}
+da_t(t)
+&=
+-a_y(t)\frac{\partial r(s(t),t;\Psi)}{\partial t}\,dt
+-a_s(t)\frac{\partial F(s(t),t;\Psi)}{\partial t}\,dt
+-\sum_{m=1}^M a_s(t)\frac{\partial G_m(s(t),t;\Psi)}{\partial t}\circ dW_t^{(m)}
+\notag\\
+&=
+-\frac{\partial r(s(t),t;\Psi)}{\partial t}\,dt
+-a_s(t)\frac{\partial F(s(t),t;\Psi)}{\partial t}\,dt
+-\sum_{m=1}^M a_s(t)\frac{\partial G_m(s(t),t;\Psi)}{\partial t}\circ dW_t^{(m)},
+\end{align}
+which is \eqref{eq:app_prop_time_cont}.
+
+\paragraph{Step 3: Event-time adjoint updates.}
+Fix an event time $t_i$. Write
+\[
+\bar s_i^-:=\bar s(t_i^-), \qquad \bar s_i^+:=\bar s(t_i^+),
+\qquad
+\bar s_i^+=\bar{\mathcal M}_i(\bar s_i^-;x_i,\Psi).
+\]
+At time $t_i$, the augmented future loss decomposes as
+\begin{equation}
+\label{eq:app_event_loss_augmented}
+\tilde{\mathcal L}_{[t_i,T]}
+=
+\ell_i(s(t_i^-),x_i,t_i;\Psi)
++
+\tilde{\mathcal L}_{[t_i^+,T]}.
+\end{equation}
+Since $\bar s_i^+$ is a differentiable function of $\bar s_i^-$, $\Psi$, and possibly $t_i$, the chain rule gives
+\begin{equation}
+\label{eq:app_event_state_jump_augmented}
+\bar a(t_i^-)
+=
+\frac{\partial \ell_i(s(t_i^-),x_i,t_i;\Psi)}{\partial \bar s_i^-}
++
+\bar a(t_i^+)
+\frac{\partial \bar{\mathcal M}_i(\bar s_i^-;x_i,\Psi)}{\partial \bar s_i^-}.
+\end{equation}
+Likewise,
+\begin{equation}
+\label{eq:app_event_param_jump_augmented}
+a_\Psi(t_i^-)
+=
+a_\Psi(t_i^+)
++
+\frac{\partial \ell_i(s(t_i^-),x_i,t_i;\Psi)}{\partial \Psi}
++
+\bar a(t_i^+)
+\frac{\partial \bar{\mathcal M}_i(\bar s_i^-;x_i,\Psi)}{\partial \Psi},
+\end{equation}
+and
+\begin{equation}
+\label{eq:app_event_time_jump_augmented}
+a_t(t_i^-)
+=
+a_t(t_i^+)
++
+\frac{\partial \ell_i(s(t_i^-),x_i,t_i;\Psi)}{\partial t_i}
++
+\bar a(t_i^+)
+\frac{\partial \bar{\mathcal M}_i(\bar s_i^-;x_i,\Psi)}{\partial t_i}.
+\end{equation}
+
+Now note that the augmented event map leaves the auxiliary state unchanged:
+\[
+\bar{\mathcal M}_i(\bar s_i^-;x_i,\Psi)
+=
+\begin{bmatrix}
+y(t_i^-)\\
+\mathcal M_i(s(t_i^-);x_i,\Psi)
+\end{bmatrix}.
+\]
+Therefore,
+\[
+\frac{\partial \bar{\mathcal M}_i}{\partial \bar s_i^-}
+=
+\begin{bmatrix}
+1 & 0\\
+0 & \dfrac{\partial \mathcal M_i(s(t_i^-);x_i,\Psi)}{\partial s(t_i^-)}
+\end{bmatrix}.
+\]
+Since $\ell_i$ does not depend on $y(t_i^-)$, the first component of \eqref{eq:app_event_state_jump_augmented} gives
+\[
+a_y(t_i^-)=a_y(t_i^+).
+\]
+Together with \eqref{eq:app_ay_constant}, this implies again that $a_y\equiv 1$ across event times.
+
+Projecting the $s$-component of \eqref{eq:app_event_state_jump_augmented}, we obtain
+\[
+a_s(t_i^-)
+=
+\frac{\partial \ell_i(s(t_i^-),x_i,t_i;\Psi)}{\partial s(t_i^-)}
++
+a_s(t_i^+)
+\frac{\partial \mathcal M_i(s(t_i^-);x_i,\Psi)}{\partial s(t_i^-)},
+\]
+which is \eqref{eq:app_prop_state_jump}. Since the $y$-component of the map has no parameter dependence,
+\[
+\bar a(t_i^+)\frac{\partial \bar{\mathcal M}_i}{\partial \Psi}
+=
+a_s(t_i^+)\frac{\partial \mathcal M_i(s(t_i^-);x_i,\Psi)}{\partial \Psi},
+\]
+hence \eqref{eq:app_event_param_jump_augmented} reduces to \eqref{eq:app_prop_param_jump}. The same projection argument yields \eqref{eq:app_prop_time_jump} from \eqref{eq:app_event_time_jump_augmented}.
+
+\paragraph{Step 4: Terminal conditions.}
+At terminal time, the augmented terminal loss is
+\[
+\tilde \varphi(\bar s(T),\Psi,T)=\varphi(s(T),\Psi,T)+y(T).
+\]
+Hence
+\[
+\bar a(T^+)=\frac{\partial \tilde \varphi(\bar s(T),\Psi,T)}{\partial \bar s(T)}
+=
+\begin{bmatrix}
+1 &
+\dfrac{\partial \varphi(s(T),\Psi,T)}{\partial s(T)}
+\end{bmatrix}.
+\]
+Therefore,
+\[
+a_s(T^+)=\frac{\partial \varphi(s(T),\Psi,T)}{\partial s(T)},
+\qquad
+a_\Psi(T^+)=\frac{\partial \varphi(s(T),\Psi,T)}{\partial \Psi},
+\qquad
+a_t(T^+)=\frac{\partial \varphi(s(T),\Psi,T)}{\partial T},
+\]
+which is exactly \eqref{eq:app_prop_terminal}. If no terminal loss is used, then all three terminal adjoints are zero except for the auxiliary component $a_y(T^+)=1$, which is internal to the proof and disappears after projection.
+
+\paragraph{Step 5: Recovery of the full gradients.}
+By construction,
+\[
+a_s(t)=\frac{\partial \mathcal L_{[t,T]}}{\partial s(t)},
+\qquad
+a_\Psi(t)=\frac{\partial \mathcal L_{[t,T]}}{\partial \Psi},
+\qquad
+a_t(t)=\frac{\partial \mathcal L_{[t,T]}}{\partial t}.
+\]
+Evaluating these definitions at $t=t_0$ yields
+\[
+\frac{\partial \mathcal L}{\partial s(t_0)}=a_s(t_0),
+\qquad
+\frac{\partial \mathcal L}{\partial \Psi}=a_\Psi(t_0),
+\qquad
+\frac{\partial \mathcal L}{\partial t_0}=a_t(t_0),
+\]
+which is \eqref{eq:app_prop_initial_gradients}. This completes the proof.
+\end{proof}
+
+\subsection{Specialization to the Proposed Latent Jump--Diffusion Marked Point Process}
+
+We now specialize Proposition~\ref{prop:adjoint_rigorous_appendix} to the proposed latent jump--diffusion marked point process. Recall that
+\[
+s(t)=
+\begin{bmatrix}
+z(t)\\
+v(t)
+\end{bmatrix},
+\qquad
+\Psi=\{\theta_\mu,\phi,\eta,\kappa,\bar v,\xi\}.
+\]
+The continuous dynamics are
+\begin{equation}
+\label{eq:app_specific_forward}
+\begin{aligned}
+dz(t)
+&=
+\mu_{\theta_\mu}(z(t),t)\,dt
++
+\sqrt{v(t)}\odot dW_z(t)
++
+J_\phi(z(t^-),x_i)\,dN(t),\\
+dv(t)
+&=
+\kappa(\bar v-v(t))\,dt
++
+\xi \sqrt{v(t)}\odot dW_v(t).
+\end{aligned}
+\end{equation}
+Thus, on each event-free interval,
+\[
+F(s,t;\Psi)
+=
+\begin{bmatrix}
+\mu_{\theta_\mu}(z,t)\\
+\kappa(\bar v-v)
+\end{bmatrix}.
+\]
+At an event time $t_i$, the event map is
+\begin{equation}
+\label{eq:app_specific_event_map}
+\mathcal M_i(s(t_i^-);x_i,\Psi)
+=
+\begin{bmatrix}
+z(t_i^-)+J_\phi(z(t_i^-),x_i)\\
+v(t_i^-)
+\end{bmatrix}.
+\end{equation}
+Hence,
+\begin{equation}
+\label{eq:app_specific_event_jacobian}
+\frac{\partial \mathcal M_i(s(t_i^-);x_i,\Psi)}{\partial s(t_i^-)}
+=
+\begin{bmatrix}
+I+\dfrac{\partial J_\phi(z(t_i^-),x_i)}{\partial z(t_i^-)} & 0\\[1.2ex]
+0 & I
+\end{bmatrix}.
+\end{equation}
+If $J_\phi$ does not depend explicitly on $t_i$, then
+\[
+\frac{\partial \mathcal M_i(s(t_i^-);x_i,\Psi)}{\partial t_i}=0.
+\]
+
+Therefore, the event-time updates become
+\begin{align}
+\label{eq:app_specific_jump_z}
+a_z(t_i^-)
+&=
+\frac{\partial \ell_i}{\partial z(t_i^-)}
++
+a_z(t_i^+)
+\left(
+I+\frac{\partial J_\phi(z(t_i^-),x_i)}{\partial z(t_i^-)}
+\right),\\
+\label{eq:app_specific_jump_v}
+a_v(t_i^-)
+&=
+\frac{\partial \ell_i}{\partial v(t_i^-)}
++
+a_v(t_i^+),\\
+\label{eq:app_specific_jump_phi}
+a_\phi(t_i^-)
+&=
+a_\phi(t_i^+)
++
+\frac{\partial \ell_i}{\partial \phi}
++
+a_z(t_i^+)\frac{\partial J_\phi(z(t_i^-),x_i)}{\partial \phi},\\
+\label{eq:app_specific_jump_other}
+a_{\Psi\setminus\phi}(t_i^-)
+&=
+a_{\Psi\setminus\phi}(t_i^+)
++
+\frac{\partial \ell_i}{\partial (\Psi\setminus\phi)},\\
+\label{eq:app_specific_jump_time}
+a_t(t_i^-)
+&=
+a_t(t_i^+)
++
+\frac{\partial \ell_i}{\partial t_i}.
+\end{align}
+
+For the marked point process negative log-likelihood objective in the main text,
+\[
+\ell_i
+=
+-\log \lambda_\eta(z(t_i^-),v(t_i^-),t_i)
+-\beta\log p_\eta(x_i\mid z(t_i^-),v(t_i^-),t_i),
+\]
+and
+\[
+r(s(t),t;\Psi)=\lambda_\eta(z(t),v(t),t).
+\]
+In the baseline specification used in the main text, we set $\beta=1$.
+Substituting these choices into Proposition~\ref{prop:adjoint_rigorous_appendix} yields the full training-time adjoint system for the proposed latent jump--diffusion marked point process.
+
+
+% =========================
+% Bibliography
+% =========================
+
+
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

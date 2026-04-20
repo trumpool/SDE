@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenv
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data / artifacts (keep small synthetic ones under version control via explicit add)
+data/*.pt
+data/*.pkl
+data/*.npz
+data/cache/
+figures/*.png
+figures/*.pdf
+runs/
+checkpoints/
+wandb/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+*.pdf
+
+# macOS / IDE
+.DS_Store
+.idea/
+.vscode/
