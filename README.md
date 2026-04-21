@@ -47,7 +47,20 @@ python -m pytest tests/ -v
 
 # 3. tiny end-to-end training run (synthetic)
 python scripts/train_small.py
+
+# 4. real-data end-to-end run (needs one Weibo-COV 2.0 monthly CSV)
+mkdir -p data/raw
+gdown 1dakfZtBG0itJTHc3_544t2sPHplTpqW_ -O data/raw/2019-12.csv
+python scripts/train_weibo.py --max-seqs 30 --steps 50
 ```
+
+### Dataset
+
+Real-data experiments use **Weibo-COV 2.0** (Hu et al., NLP4COVID@EMNLP 2020):
+monthly CSV files of COVID-era Chinese Weibo posts. See
+`src/weibo_data.py` for schema, jitter strategy, mark feature extraction, and
+per-user sequence construction. `data/` is gitignored — reproduce via
+`gdown` using the IDs listed in that module's docstring.
 
 ## Phases
 

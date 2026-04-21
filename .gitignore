@@ -17,11 +17,8 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 
-# Data / artifacts (keep small synthetic ones under version control via explicit add)
-data/*.pt
-data/*.pkl
-data/*.npz
-data/cache/
+# Data / artifacts — nothing in data/ is version-controlled; reproduce via scripts.
+data/
 figures/*.png
 figures/*.pdf
 runs/
