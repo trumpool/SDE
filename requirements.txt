@@ -4,6 +4,8 @@ numpy>=1.24
 scipy>=1.11
 matplotlib>=3.7
 tqdm>=4.65
-# Optional: for text-valued marks (Section 4 of paper). Uncomment when adding real text data.
-# transformers>=4.40
-# tokenizers>=0.15
+pandas>=2.0
+gdown>=5.2
+# Text-valued marks (Section 4 of paper).
+transformers>=4.40
+tokenizers>=0.15

@@ -34,6 +34,10 @@ def main():
                         help="SDE step size in DAYS (0.05 ≈ 72 min)")
     parser.add_argument("--d-z", type=int, default=8)
     parser.add_argument("--d-v", type=int, default=8)
+    parser.add_argument("--d-x", type=int, default=32,
+                        help="mark dim (BERT is projected from 768 down to this)")
+    parser.add_argument("--bert-cache", type=str, default=None,
+                        help="path to encoded [CLS] cache; omit to use placeholder features")
     parser.add_argument("--steps", type=int, default=50)
     parser.add_argument("--lr", type=float, default=3e-3)
     parser.add_argument("--beta", type=float, default=1.0)
@@ -48,18 +52,31 @@ def main():
 
     # --- load ---
     csv_path = os.path.join(_ROOT, args.csv) if not os.path.isabs(args.csv) else args.csv
+    bert_cache = (
+        os.path.join(_ROOT, args.bert_cache)
+        if args.bert_cache and not os.path.isabs(args.bert_cache)
+        else args.bert_cache
+    )
     sequences = sequences_from_path(
-        csv_path, min_length=args.min_length, max_sequences=args.max_seqs, seed=args.seed
+        csv_path, min_length=args.min_length, max_sequences=args.max_seqs,
+        bert_cache_path=bert_cache, seed=args.seed,
     )
     print("[data]")
     print(summarize(sequences))
+    mark_in_dim = sequences[0].event_marks.shape[-1] if sequences else MARK_DIM
+    using_bert = bert_cache is not None
+    print(f"[data] mark input dim: {mark_in_dim} ({'BERT [CLS]' if using_bert else 'placeholder features'})")
 
     for s in sequences:
         s.event_times = s.event_times.to(device)
         s.event_marks = s.event_marks.to(device)
 
     # --- model ---
-    cfg = ModelConfig(d_z=args.d_z, d_v=args.d_v, d_x=MARK_DIM)
+    cfg = ModelConfig(
+        d_z=args.d_z, d_v=args.d_v,
+        d_x=args.d_x if using_bert else MARK_DIM,
+        bert_dim=mark_in_dim if using_bert else None,
+    )
     model = NeuralSVMPP(cfg).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 

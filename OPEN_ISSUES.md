@@ -67,10 +67,14 @@ working default but deserves discussion.
 
 ## Text-valued marks (§4)
 
-11. **[DEFERRED] RoBERTa-wwm-ext encoding.**
-    Not implemented yet — we use synthetic continuous vector marks for Phase A.
-    When real text arrives we'll add a thin `text_encoder.py` that encodes to
-    `[CLS]` and projects to `d_in`.
+11. **[RESOLVED 2026-04-20] RoBERTa-wwm-ext encoding wired.**
+    `src/text_encoder.py` + `scripts/encode_weibo.py` encode posts with
+    `hfl/chinese-roberta-wwm-ext` at `max_length=256`, `batch_size=32`,
+    storing `[CLS]` as fp16 in `data/encoded/<month>_cls.pt`. `NeuralSVMPP`
+    owns a learnable `Linear(768, d_x=32)` projector per paper §4, applied
+    automatically inside `forward_sequence` (and in `compute_loss` when the
+    decoder scores marks). Throughput on Apple M4 MPS: ~48 texts/s
+    (~16 min for one monthly CSV).
 
 ## Training / data
 

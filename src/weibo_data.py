@@ -23,7 +23,7 @@ Design decisions (discussed with the user on 2026-04-20):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import math
 import re
@@ -124,6 +124,18 @@ def load_csv(path: str) -> pd.DataFrame:
     return df
 
 
+def load_bert_cache(path: str) -> Tuple[dict, torch.Tensor]:
+    """Load a cache written by ``scripts/encode_weibo.py``.
+
+    Returns ``(id_to_idx, embeddings)`` where ``embeddings`` is ``(N, 768)``.
+    """
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    ids: List[str] = payload["ids"]
+    emb: torch.Tensor = payload["embeddings"]
+    id_to_idx = {s: i for i, s in enumerate(ids)}
+    return id_to_idx, emb
+
+
 def build_sequences(
     df: pd.DataFrame,
     *,
@@ -133,6 +145,7 @@ def build_sequences(
     pad_tail: float = 600.0,    # seconds of pad after last event → T
     max_sequences: Optional[int] = None,
     seed: int = 0,
+    bert_cache: Optional[Tuple[dict, torch.Tensor]] = None,
 ) -> List[WeiboSequence]:
     """Group posts by user, filter short sequences, jitter, emit ``WeiboSequence``.
 
@@ -150,7 +163,7 @@ def build_sequences(
     """
     rng = np.random.default_rng(seed)
 
-    per_user: dict[str, list[int]] = {}
+    per_user: Dict[str, List[int]] = {}
     for idx, uid in enumerate(df["user_id"].to_numpy()):
         per_user.setdefault(uid, []).append(idx)
 
@@ -160,7 +173,22 @@ def build_sequences(
     if max_sequences is not None:
         kept_uids = kept_uids[:max_sequences]
 
-    all_marks = _extract_marks(df)               # (N_total, MARK_DIM)
+    if bert_cache is None:
+        all_marks: np.ndarray | torch.Tensor = _extract_marks(df)   # (N_total, MARK_DIM)
+    else:
+        id_to_idx, emb = bert_cache
+        all_ids = df["_id"].astype(str).to_numpy()
+        # Vectorized lookup; error loudly if anything is missing.
+        missing = [i for i in all_ids if i not in id_to_idx]
+        if missing:
+            raise KeyError(
+                f"BERT cache is missing {len(missing)} / {len(all_ids)} ids. "
+                f"First missing: {missing[:3]}"
+            )
+        cache_indices = np.array([id_to_idx[i] for i in all_ids], dtype=np.int64)
+        # Keep as float32 on CPU; downstream `.to(device)` handles moving.
+        all_marks = emb[cache_indices].float()
+
     ts_ns = df["created_at"].astype("int64").to_numpy()  # nanoseconds since epoch
 
     sequences: List[WeiboSequence] = []
@@ -182,15 +210,22 @@ def build_sequences(
         # Convert to DAYS relative to t0_abs.
         t_rel = (abs_secs - t0_abs) / SECONDS_PER_DAY
         T_rel = (T_abs - t0_abs) / SECONDS_PER_DAY
-        marks = all_marks[idxs]
+        if isinstance(all_marks, torch.Tensor):
+            marks = all_marks[torch.from_numpy(idxs).long()]
+        else:
+            marks = all_marks[idxs]
 
         # Sanity: strict interior.
         assert 0.0 < t_rel.min() and t_rel.max() < T_rel, (uid, t_rel, T_rel)
 
+        if isinstance(marks, torch.Tensor):
+            marks_t = marks.to(torch.float32)
+        else:
+            marks_t = torch.from_numpy(marks).to(torch.float32)
         sequences.append(
             WeiboSequence(
                 event_times=torch.from_numpy(t_rel).to(torch.float32),
-                event_marks=torch.from_numpy(marks).to(torch.float32),
+                event_marks=marks_t,
                 t0=0.0,
                 T=float(T_rel),
                 user_id=str(uid),
@@ -202,12 +237,18 @@ def build_sequences(
 
 def sequences_from_path(
     path: str, *, min_length: int = 5, max_sequences: Optional[int] = None,
-    **kwargs,
+    bert_cache_path: Optional[str] = None, **kwargs,
 ) -> List[WeiboSequence]:
-    """One-shot convenience: CSV path → list of ``WeiboSequence``."""
+    """One-shot convenience: CSV path → list of ``WeiboSequence``.
+
+    If ``bert_cache_path`` is given, every event's mark is the 768-d [CLS]
+    embedding from that cache instead of the 8-d placeholder features.
+    """
     df = load_csv(path)
+    cache = load_bert_cache(bert_cache_path) if bert_cache_path else None
     return build_sequences(
-        df, min_length=min_length, max_sequences=max_sequences, **kwargs
+        df, min_length=min_length, max_sequences=max_sequences,
+        bert_cache=cache, **kwargs,
     )
 
 

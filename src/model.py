@@ -21,6 +21,10 @@ class ModelConfig:
     d_z: int = 4
     d_v: int = 4
     d_x: int = 4
+    # If set, the model owns a Linear(bert_dim → d_x) projector. Event marks
+    # passed in with shape (..., bert_dim) are auto-projected down to d_x
+    # before entering the SDE. This matches paper §4: x_i = W_p·h_i^[CLS]+b_p.
+    bert_dim: Optional[int] = None
     drift_hidden: int = 64
     jump_hidden: int = 64
     intensity_hidden: int = 32
@@ -51,6 +55,10 @@ class NeuralSVMPP(nn.Module):
         self.jump = JumpNet(c.d_z, c.d_x, hidden=c.jump_hidden)
         self.intensity_net = DualChannelIntensity(c.d_z, c.d_v, d_h=c.intensity_hidden)
         self.decoder = GMMMarkDecoder(c.d_z, c.d_v, c.d_x, K=c.gmm_K, hidden=c.gmm_hidden)
+        # Optional BERT [CLS] → d_x projector (paper §4).
+        self.bert_proj = (
+            nn.Linear(c.bert_dim, c.d_x) if c.bert_dim is not None else None
+        )
 
         # CIR params — per-coordinate (broadcast from scalar init).
         self._raw_log_kappa = nn.Parameter(torch.full((c.d_v,), c.init_log_kappa))
@@ -86,6 +94,25 @@ class NeuralSVMPP(nn.Module):
         return self.v_bar.detach()
 
     # ------- forward -------
+    def project_marks(self, event_marks: torch.Tensor) -> torch.Tensor:
+        """Apply ``bert_proj`` if configured and the input is BERT-dim.
+
+        - If ``bert_proj`` is ``None`` → pass-through.
+        - If ``event_marks`` already has the ``d_x`` trailing dim → pass-through
+          (lets callers feed raw d_x marks even in BERT-configured models).
+        - Otherwise project ``(..., bert_dim) → (..., d_x)`` through the
+          learnable linear layer.
+        """
+        if self.bert_proj is None:
+            return event_marks
+        if event_marks.shape[-1] == self.cfg.d_x:
+            return event_marks
+        # Cast to the projector's dtype in case the cache is fp16.
+        target_dtype = self.bert_proj.weight.dtype
+        if event_marks.dtype != target_dtype:
+            event_marks = event_marks.to(target_dtype)
+        return self.bert_proj(event_marks)
+
     def forward_sequence(
         self,
         event_times: torch.Tensor,
@@ -95,6 +122,7 @@ class NeuralSVMPP(nn.Module):
         dt: float = 0.05,
         generator: Optional[torch.Generator] = None,
     ) -> ForwardResult:
+        event_marks = self.project_marks(event_marks)
         return simulate(
             drift=self.drift,
             jump=self.jump,

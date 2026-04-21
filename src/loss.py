@@ -47,8 +47,12 @@ def compute_loss(
     )
 
     if event_marks.numel() > 0:
+        # Apply the optional BERT projector so the GMM decoder always sees
+        # marks in the declared d_x space (the projected marks are what the
+        # generative model claims to emit).
+        projected = model.project_marks(event_marks)
         log_p = model.decoder.log_prob(
-            event_marks, forward.z_pre_event, forward.v_pre_event
+            projected, forward.z_pre_event, forward.v_pre_event
         )                                           # (N,)
         nll_mark = -log_p.sum()
     else:
