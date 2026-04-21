@@ -79,8 +79,33 @@ working default but deserves discussion.
 ## Training / data
 
 12. **[BLOCKER for real data] Batching of variable-length sequences.**
-    Current implementation handles one sequence at a time (or a same-length batch
-    via padding). Real data will need packed sequences with a mask in the loss.
+    Current implementation handles one sequence at a time (train_weibo.py loops
+    serially over sequences per step). Real data at scale will need packed
+    sequences with a mask in the loss. For 2019-12 with 90 sequences this is
+    fine on CPU (~7 s/step).
 
 13. **[DESIGN] Initial conditions `s(t_0)`.**
     We default `z(t_0) = 0`, `v(t_0) = v̄` (mean-revert point). Could learn them.
+
+14. **[DESIGN] ``β`` balancing timing vs. marks with BERT features.**
+    With 32-d BERT-projected marks the GMM log-likelihood dominates the
+    timing term at ``β=1``. Empirically on 2019-12 we used ``β=0.1`` and got
+    a healthy decrease in both terms. Open question: should we fix a
+    principled default (e.g. per-dimension normalization so the mark term is
+    comparable in scale to the timing term) or keep ``β`` as a tuning knob?
+
+15. **[DESIGN] Short-window "burst" sequences.**
+    14/90 sequences in 2019-12 have horizon ``T < 0.1 day`` — users who
+    posted 5+ tweets within minutes (likely repost cascades or bots). The
+    SDE grid still handles them (``n_sub = max(1, ceil(span/dt))``) but the
+    MPP semantics may not fit: within a 35-second burst, the latent
+    jump-diffusion barely evolves. Options: (a) minimum horizon filter,
+    (b) separate clustered-event likelihood, (c) accept and move on — the
+    sample is small (~15%).
+
+16. **[DEFERRED → Phase B] MPS unrolled-integrator performance.**
+    MPS was much slower than CPU for the Euler-Maruyama rollout with many
+    tiny ops; a 90-seq run hung for 10+ minutes before I killed it. CUDA
+    should behave better (fewer kernel-launch pessimizations), but if not,
+    the fix is to batch across sequences along the grid. Log this for the
+    Linux move.
