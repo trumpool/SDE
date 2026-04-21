@@ -36,22 +36,32 @@ SDE/
 
 ## Quickstart
 
-```bash
-# 1. create venv & install
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+One command from a fresh clone takes you all the way to a trained model:
 
-# 2. run unit tests
+```bash
+bash setup.sh                 # venv + deps + tests + download + BERT encode + training sanity
+bash setup.sh --quick         # stop after tests + deps (skip the 20-min encoding)
+bash setup.sh --no-train      # encode, but skip the training run
+bash setup.sh --device mps    # use Apple GPU for the training run (note: usually slower
+                              #   than CPU for the unrolled integrator; see OPEN_ISSUES §16)
+```
+
+Every step is idempotent — re-running skips steps whose artifact already exists.
+
+### Manual usage (after ``setup.sh`` has installed the env once)
+
+```bash
+source .venv/bin/activate
 python -m pytest tests/ -v
 
-# 3. tiny end-to-end training run (synthetic)
+# Synthetic-data sanity run (no download needed):
 python scripts/train_small.py
 
-# 4. real-data end-to-end run (needs one Weibo-COV 2.0 monthly CSV)
-mkdir -p data/raw
+# Real-data end-to-end (download + encode + train):
 gdown 1dakfZtBG0itJTHc3_544t2sPHplTpqW_ -O data/raw/2019-12.csv
-python scripts/train_weibo.py --max-seqs 30 --steps 50
+python scripts/encode_weibo.py --csv data/raw/2019-12.csv
+python scripts/train_weibo.py --bert-cache data/encoded/2019-12_cls.pt \
+    --max-seqs 90 --steps 50 --beta 0.1
 ```
 
 ### Dataset
@@ -60,7 +70,8 @@ Real-data experiments use **Weibo-COV 2.0** (Hu et al., NLP4COVID@EMNLP 2020):
 monthly CSV files of COVID-era Chinese Weibo posts. See
 `src/weibo_data.py` for schema, jitter strategy, mark feature extraction, and
 per-user sequence construction. `data/` is gitignored — reproduce via
-`gdown` using the IDs listed in that module's docstring.
+`setup.sh` (which pulls 2019-12) or by calling `gdown` with the IDs listed in
+that module's docstring for other months.
 
 ## Phases
 
