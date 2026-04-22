@@ -1,5 +1,7 @@
 # Open Issues / Things to Discuss
 
+> English · [中文版](OPEN_ISSUES.zh.md)
+
 Items marked **[BLOCKER]** must be resolved before real data; **[DESIGN]** has a
 working default but deserves discussion.
 

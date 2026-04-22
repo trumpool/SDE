@@ -1,5 +1,7 @@
 # Neural Marked Point Process with Latent Stochastic Volatility
 
+> English · [中文版](README.zh.md)
+
 Reference implementation of the model described in `main.tex` — a continuous-time
 latent jump-diffusion marked point process where
 
