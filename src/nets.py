@@ -90,6 +90,14 @@ class DualChannelIntensity(nn.Module):
         nn.init.normal_(self.a_tr, std=1.0 / math.sqrt(d_h))
         nn.init.normal_(self.a_vol, std=1.0 / math.sqrt(d_h))
 
+    def freeze_volatility_channel(self) -> None:
+        """Set ``a_vol`` to zero and disable its gradient (ablation §B3)."""
+        with torch.no_grad():
+            self.a_vol.zero_()
+        self.a_vol.requires_grad_(False)
+        for p in self.phi_vol.parameters():
+            p.requires_grad_(False)
+
     def forward(self, z: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
         # Returns: (...,) positive intensity λ_g.
         lam_tr = (self.phi_tr(z) * self.a_tr).sum(dim=-1)

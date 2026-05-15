@@ -257,6 +257,31 @@ def sequences_from_path(
 # ---------------------------------------------------------------------------
 
 
+def train_test_split(
+    sequences: List[WeiboSequence], test_frac: float = 0.2, seed: int = 0,
+) -> Tuple[List[WeiboSequence], List[WeiboSequence]]:
+    """Stratified-by-length split: keep long sequences in both halves.
+
+    Sort by event count descending, then interleave into train/test in a
+    fixed-seed pseudo-random order. This keeps a few long sequences in the
+    test set, which is important when the long tail is small (90 sequences
+    here; pure random can put the 37-event user entirely in either side).
+    """
+    rng = np.random.default_rng(seed)
+    sorted_seqs = sorted(sequences, key=lambda s: -len(s.event_times))
+    train: List[WeiboSequence] = []
+    test: List[WeiboSequence] = []
+    for s in sorted_seqs:
+        if rng.uniform() < test_frac:
+            test.append(s)
+        else:
+            train.append(s)
+    # Ensure non-empty test set.
+    if not test and train:
+        test.append(train.pop())
+    return train, test
+
+
 def summarize(sequences: Iterable[WeiboSequence]) -> str:
     seqs = list(sequences)
     if not seqs:

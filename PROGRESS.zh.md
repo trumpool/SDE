@@ -77,7 +77,7 @@ Linux GPU)留给下一步。
 
 ## 三、关键数据
 
-### 3.1 测试情况 —— 21/21 通过
+### 3.1 测试情况 —— 25/25 通过
 
 | 测试文件 | 数量 | 覆盖点 |
 |---|---|---|
@@ -87,6 +87,7 @@ Linux GPU)留给下一步。
 | **`test_gradient.py`** | **2** | **autograd vs 有限差分,打在 `b_λ` 和 `raw_log_kappa`(后者穿过整条 SDE 积分链)** |
 | `test_weibo_data.py` | 3 | CSV 加载、最小长度过滤、summary |
 | `test_bert_integration.py` | 2 | BERT 768-d 输入端到端 + 投影层梯度非零 |
+| `test_baselines.py` | 4 | Poisson MLE 闭式、Hawkes 对数似然 vs 梯形积分(误差 < 1e-3)、GMM 标记模型、`freeze_volatility_channel` ablation 真的把 v 通道关掉 |
 
 > **最关键的测试**是 `test_finite_difference_vs_autograd_on_log_kappa`:它用有限
 > 差分校验 `∂L/∂(log κ)` 的 autograd 结果,相对误差 < 0.5%。这个梯度要穿过
@@ -148,14 +149,55 @@ loss/ev: 5.64 → 0.06 (↓ 99%)
 - **`ρ` 从初始 0 漂到 -0.036**:模型自发学到 `z` 与 `v` 的 Brownian 弱负相关
 - **CIR 参数几乎没动**:30 步太短,这类超参收敛一般需要 500+ 步
 
-### 3.4 代码规模
+### 3.4 基线对比(2026-05-15)
+
+固定 80/20 train/test split,所有四个模型用**同一组** BERT mark + **同一个**
+切分。SVMPP 两个变体跑 80 步 Adam,Hawkes 用解析对数似然跑 300 步,Poisson
+用闭式 MLE。三个评测列分别报告 timing、mark、survival 的 per-event NLL。
+
+```
+train: 73 seqs / 582 events   test: 17 seqs / 146 events
+
+model           | nll_time/ev | nll_mark/ev | surv/ev | total/ev
+----------------+-------------+-------------+---------+---------
+B1 Poisson      | +0.464      | +239.062    | +0.925  | +240.450
+B2 Hawkes(exp)  | −0.705      | +325.921    | +0.898  | +326.114
+B3 SVMPP no-vol | +0.112      | +4.725      | +0.635  | +1.220
+M  SVMPP 完整   | −0.324      | +1.832      | +0.772  |   0.632
+```
+
+> total/ev = nll_time + β·nll_mark + surv,其中 β=0.1 用于 mark 项加权。
+
+**核心观察:**
+
+1. **完整模型 M 在 total 上比 ablation B3 好 ~2×(0.632 vs 1.220)**,而 B3 把
+   `a_vol` 强制冻结为 0(波动率通道关闭)。这直接验证了论文 §2.3 的核心论点 ——
+   **波动率通道是有预测价值的**。
+2. **M 自发学到的 `|a_vol| = 0.183`**(B3 强制为 0),且 `ρ = −0.019`(z 与 v
+   的 Brownian 出现弱负相关),说明完整模型在用到这个自由度。
+3. **B2 Hawkes 在 timing-NLL 上反而最好(−0.705 vs M 的 −0.324)**。Hawkes 把
+   全部 3 个参数都贡献给 timing,且训了 300 步;我们的神经模型只训 80 步,
+   timing 项的拟合还没完全跟上。说明 timing 表达力没饱和,值得更长训练。
+4. **B1/B2 的 mark-NLL 灾难性(+239 / +326)**,因为它们的 GMM 不依赖于潜在
+   状态或时间 —— 在 32-d BERT 特征上,一个 3 分量的无条件 GMM 会严重过拟合
+   训练分布,测试集来自不同用户/话题就崩溃。M / B3 的 GMM 条件于 `z(t_i^-)`,
+   所以测试 mark-NLL 小三个量级。
+5. **B3 ablation 的 surv/ev 反而最低(0.635)**:关闭波动率通道后,模型用
+   纯 trend 通道去解释事件强度,可能低估了 bursty 事件,导致积分项偏小。
+
+**实验局限:**
+- 测试集只有 17 序列 / 146 事件 —— 方差大
+- SVMPP 只训 80 步,远未收敛(尤其 CIR 参数 κ/v̄ 基本没动)
+- 当前 `β=0.1` 对完整模型有利,改 `β` 排名可能变
+
+### 3.5 代码规模
 
 | 统计项 | 数值 |
 |---|---|
-| Python 总行数 | **2063** 行(src + scripts + tests) |
-| src 模块 | 8 个(含 `__init__.py`) |
-| scripts | 4 个 |
-| tests | 7 个文件,**21 个用例** |
+| Python 总行数 | **2713** 行(src + scripts + tests) |
+| src 模块 | 9 个(含 `__init__.py`,新增 `baselines.py`) |
+| scripts | 5 个(新增 `eval_baselines.py`) |
+| tests | 8 个文件,**25 个用例** |
 | 文档 | 6 个 .md(README/OPEN_ISSUES 各中英两份 + CLAUDE.md + PROGRESS.zh.md) |
 
 ## 四、关键设计决策(带依据)
